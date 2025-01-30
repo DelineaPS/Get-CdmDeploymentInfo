@@ -179,7 +179,7 @@ function global:Get-CdmDeploymentInfo
         ### Computers ###
 
         # setting the search for our unique tag
-        $c = [ADSISearcher]'(&(displayName=$CimsComputerVersion*))' # targets Cdm computers
+        $c = [ADSISearcher]'(&(displayName=$Cims*ComputerVersion*))' # targets Cdm computers
 
         # setting the search root
         $c.SearchRoot = [ADSI]"LDAP://$domain"
