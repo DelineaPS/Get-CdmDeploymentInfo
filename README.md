@@ -6,7 +6,7 @@ The intent of this tool is to provide an easy way to gather metric data across m
 To get started, copy the snippet below and paste it directly into a PowerShell (Run-As Administrator not needed) window and run it. This effectively invokes the script from this GitHub repo directly as a web request and dot sources it into your current PowerShell session.
 
 ```
-. ([ScriptBlock]::Create(((Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/dnlrv/Get-CdmDeploymentInfo/main/Get-CdmDeploymentInfo.ps1').Content)))
+. ([ScriptBlock]::Create(((Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/DelineaPS/Get-CdmDeploymentInfo/main/Get-CdmDeploymentInfo.ps1').Content)))
 ```
 
 # Using the script
