@@ -70,9 +70,10 @@ class CentrifyComputer : CentrifyObject
 
         switch ($c.displayname)
         {
-            '$CimsComputerVersion2' { $this.ZoneVersion = "Classic"     ; break }
-            '$CimsComputerVersion3' { $this.ZoneVersion = "Hiearchical" ; break }
-            default                 { $this.ZoneVersion = "Unknown"     ; break }
+            '$CimsComputerVersion2'        { $this.ZoneVersion = "Classic"     ; break }
+            '$CimsComputerVersion3'        { $this.ZoneVersion = "Hiearchical" ; break }
+            '$CimsWindowsComputerVersion1' { $this.ZoneVersion = "PCS"         ; break }
+            default                        { $this.ZoneVersion = "Unknown"     ; break }
         }
     }# CentrifyComputer([System.String]$d, [PSObject]$c)
 
@@ -209,7 +210,7 @@ function global:Get-CdmDeploymentInfo
             $s.PropertiesToLoad.AddRange(@('keywords'))
 
             # finding that keywords property, and splitting the resulting string to only show the parent object SID
-            $centrifycomputer.ParentLink = $s.FindOne().Properties.keywords.Split(":")[1]
+            $centrifycomputer.ParentLink = ($s.FindOne().Properties.keywords | Where-Object {$_ -like "parentLink:*"}).Split(":")[1]
 
             # query to get the parent computer DN
             $b = [ADSI]"LDAP://$domain/<SID=$($centrifycomputer.ParentLink)>"
