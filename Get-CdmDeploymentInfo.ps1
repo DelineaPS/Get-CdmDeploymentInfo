@@ -1,3 +1,16 @@
+# required dll dependancy
+
+# if it is not found, exit
+if (-Not (Test-Path 'C:\Program Files\Centrify\Licensing Service\Centrify.Licensing.Logic.dll'))
+{
+    Write-Warning 'Required Centrify.Licensing.Logic.dll not found. Exiting.'
+    Write-Warning 'check C:\Program Files\Centrify\Licensing Service\Centrify.Licensing.Logic.dll'
+    Exit 1
+}
+
+# importing required dll
+Import-Module 'C:\Program Files\Centrify\Licensing Service\Centrify.Licensing.Logic.dll'
+
 ###########
 #region ### Classes
 ###########
@@ -13,14 +26,32 @@ class CentrifyObject
 # class for license key information
 class LicenseKey : CentrifyObject
 {
-    [System.String]$Type
     [System.String]$Key
+    [System.String]$Type
+    [System.String]$Serial
+    [System.String]$Count
+    [System.Boolean]$isValid
+    [System.Boolean]$isEval
+    [System.Boolean]$isFIPS
+    [System.DateTime]$ExpiryDate
+
 
     LicenseKey([System.String]$d,[System.String]$k)
     {
         $this.Domain = $d
-        $this.Type   = $k.Split(":")[0]
+        #$this.Type   = $k.Split(":")[0]
         $this.Key    = $k.Split(":")[1]
+
+        $li = New-Object Centrify.Licensing.Logic.DirectControl.DCLicenseInfo -ArgumentList ($this.Key,(Get-Date),(Get-Date).AddDays(-5),"NULL")
+        
+        $this.Type       = $li.Type
+        $this.Serial     = $li.Serial
+        $this.Count      = $li.Count
+        $this.isValid    = $li.IsValid
+        $this.isEval     = $li.IsEval
+        $this.isFIPS     = $li.IsFIPS
+        $this.ExpiryDate = $li.ExpiryDate
+    
     }
 }# class LicenseKey : CentrifyObject
 
@@ -43,7 +74,7 @@ class CentrifyZone : CentrifyObject
             '$CimsZoneVersion3' { $this.ZoneType = "ClassicRFC"       ; break }
             '$CimsZoneVersion4' { $this.ZoneType = "ClassicStandard"  ; break }
             '$CimsZoneVersion7' { $this.ZoneType = "Hierarchical"     ; break }
-            default             { $this.ZoneTyoe = "Unknown"          ; break }
+            default             { $this.ZoneType = "Unknown"          ; break }
         }
     }
 }# class CentrifyZone : CentrifyObject
@@ -70,10 +101,9 @@ class CentrifyComputer : CentrifyObject
 
         switch ($c.displayname)
         {
-            '$CimsComputerVersion2'        { $this.ZoneVersion = "Classic"     ; break }
-            '$CimsComputerVersion3'        { $this.ZoneVersion = "Hiearchical" ; break }
-            '$CimsWindowsComputerVersion1' { $this.ZoneVersion = "PCS"         ; break }
-            default                        { $this.ZoneVersion = "Unknown"     ; break }
+            '$CimsComputerVersion2' { $this.ZoneVersion = "Classic"     ; break }
+            '$CimsComputerVersion3' { $this.ZoneVersion = "Hiearchical" ; break }
+            default                 { $this.ZoneVersion = "Unknown"     ; break }
         }
     }# CentrifyComputer([System.String]$d, [PSObject]$c)
 
@@ -106,7 +136,7 @@ function global:Get-CdmDeploymentInfo
     Gets information regarding a Delinea Server Suite Deployment.
 
     .DESCRIPTION
-    This cmdlet will search multiple domains to parse information regarding a Delina 
+    This cmdlet will search multiple domains to parse information regarding a Delinea 
     Server Suite deployment. This will produce some system and license metrics for review.
 
     .PARAMETER Domains
@@ -235,5 +265,108 @@ function global:Get-CdmDeploymentInfo
 
     return $DeploymentInfo
 }# function global:Get-CdmDeploymentInfo 
+#endregion
+###########
+
+###########
+#region ### global:Get-CdmLicenseKeys
+###########
+function global:Get-CdmLicenseKeys
+{
+    <#
+    .SYNOPSIS
+    Gets license information regarding a Delinea Server Suite Deployment.
+
+    .DESCRIPTION
+    This cmdlet will search multiple domains to parse information regarding a Delinea 
+    Server Suite deployment. This will produce some license metrics for review.
+
+    .PARAMETER Domains
+    The domains to parse. This is an array and multiple domains can be provided separated by a comma.
+
+    .INPUTS
+    None. You can't redirect or pipe input to this function.
+
+    .OUTPUTS
+    This function outputs a unique Centrify LicenseKey object.
+
+    .EXAMPLE
+    C:\PS> Get-CdmLicenseKeys -Domains domain1.com,domain2.com,domain3.com
+    This will provide Server Suite license information from domain1.com, domain2.com, and domain3.com
+    #>
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    param
+    (
+        [Parameter(Position = 0, Mandatory = $true, HelpMessage = "The domains to target.")]
+		[System.String[]]$Domains
+    )
+
+    $CdmDeploymentInfo = Get-CdmDeploymentInfo -Domains $Domains
+
+    return $CdmDeploymentInfo.LicenseKeys
+}# function global:Get-CdmLicenseKeys
+#endregion
+###########
+
+
+###########
+#region ### global:Get-CdmSystemCount
+###########
+function global:Get-CdmSystemCount
+{
+    <#
+    .SYNOPSIS
+    Gets system information regarding a Delinea Server Suite Deployment.
+
+    .DESCRIPTION
+    This cmdlet will search multiple domains to parse information regarding a Delinea 
+    Server Suite deployment. This will produce some system metrics for review.
+
+    .PARAMETER Domains
+    The domains to parse. This is an array and multiple domains can be provided separated by a comma.
+
+    .INPUTS
+    None. You can't redirect or pipe input to this function.
+
+    .OUTPUTS
+    This function outputs to the console only.
+
+    .EXAMPLE
+    C:\PS> Get-CdmSystemCount -Domains domain1.com,domain2.com,domain3.com
+    This will provide Server Suite server information from domain1.com, domain2.com, and domain3.com
+    #>
+    [CmdletBinding(DefaultParameterSetName="Default")]
+    param
+    (
+        [Parameter(Position = 0, Mandatory = $true, HelpMessage = "The domains to target.")]
+		[System.String[]]$Domains
+    )
+
+    $CdmDeploymentInfo = Get-CdmDeploymentInfo -Domains $Domains
+
+    $TotalSystems = $CdmDeploymentInfo.CentrifyComputers.Count
+
+    Write-Host "Total System Count: " -NoNewline
+
+    Write-Host $CdmDeploymentInfo.CentrifyComputers.Count
+
+    Write-Host "Total System Operating Systems across all domains"
+
+    Write-Host  ($CdmDeploymentInfo.CentrifyComputers | Group-Object -Property OperatingSystem | Select -Property Count,Name | Out-String)
+
+
+    foreach ($domain in $Domains)
+    {
+        Write-Host "`r`n### Domain [$domain] ###`r`n"
+
+        Write-Host "Total $domain System Count: " -NoNewline
+
+        Write-Host ($CdmDeploymentInfo.CentrifyComputers | Where-Object -Property Domain -eq $domain | Measure-Object | Select-Object -ExpandProperty Count)
+
+        Write-Host "Total $domain System Operating System: " -NoNewline
+
+        Write-Host  ($CdmDeploymentInfo.CentrifyComputers | Where-Object -Property Domain -eq $domain | Group-Object -Property OperatingSystem | Select -Property Count,Name | Out-String)
+    }
+}# function global:Get-CdmSystemCount
 #endregion
 ###########
