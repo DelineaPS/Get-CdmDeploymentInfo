@@ -5,6 +5,7 @@ if (-Not (Test-Path 'C:\Program Files\Centrify\Licensing Service\Centrify.Licens
 {
     Write-Warning 'Required Centrify.Licensing.Logic.dll not found. Exiting.'
     Write-Warning 'check C:\Program Files\Centrify\Licensing Service\Centrify.Licensing.Logic.dll'
+    Write-Warning 'Ensure Licensing Service is installed.'
     Exit 1
 }
 
@@ -23,10 +24,16 @@ class CentrifyObject
     CentrifyObject() {}
 }# class CentrifyObject
 
-# class for license key information
 class LicenseKey : CentrifyObject
 {
     [System.String]$Key
+    [System.String]$Product
+
+    LicenseKey () {}
+}
+
+class DCLicenseKey : LicenseKey
+{
     [System.String]$Type
     [System.String]$Serial
     [System.String]$Count
@@ -35,11 +42,10 @@ class LicenseKey : CentrifyObject
     [System.Boolean]$isFIPS
     [System.DateTime]$ExpiryDate
 
-
-    LicenseKey([System.String]$d,[System.String]$k)
+    DCLicenseKey([System.String]$d, [System.String]$p, [System.String]$k)
     {
         $this.Domain = $d
-        #$this.Type   = $k.Split(":")[0]
+        $this.Product = $p
         $this.Key    = $k.Split(":")[1]
 
         $li = New-Object Centrify.Licensing.Logic.DirectControl.DCLicenseInfo -ArgumentList ($this.Key,(Get-Date),(Get-Date).AddDays(-5),"NULL")
@@ -51,9 +57,40 @@ class LicenseKey : CentrifyObject
         $this.isEval     = $li.IsEval
         $this.isFIPS     = $li.IsFIPS
         $this.ExpiryDate = $li.ExpiryDate
-    
-    }
-}# class LicenseKey : CentrifyObject
+    }# DCLicenseKey([System.String]$d, [System.String]$p, [System.String]$k)
+}# class DCLicenseKey : LicenseKey
+
+class DALicenseKey : LicenseKey
+{
+    [System.String]$Type
+    [System.String]$SerialNumber
+    [System.String]$NumberofSeats
+    [System.Boolean]$isValid
+    [System.Boolean]$isEval
+    [System.Boolean]$isLimitedEval
+    [System.Boolean]$isFIPS
+    [System.Boolean]$isVersion1
+    [System.DateTime]$ExpiryDate
+
+    DALicenseKey([System.String]$d, [System.String]$p, [System.String]$k)
+    {
+        $this.Domain = $d
+        $this.Product = $p
+        $this.Key    = $k.Split(":")[1]
+
+        $li = New-Object Centrify.DirectAudit.Common.Logic.Api.LicenseKey ($this.Key,(Get-Date),(Get-Date).AddDays(-5))
+
+        $this.Type          = $li.Type
+        $this.SerialNumber  = $li.SerialNumber
+        $this.NumberofSeats = $li.NumberOfSeats
+        $this.isValid       = $li.IsValid
+        $this.isEval        = $li.IsEval
+        $this.isLimitedEval = $li.IsLimitedEval
+        $this.isFIPS        = $li.IsFIPS
+        $this.isVersion1    = $li.IsVersion1
+        $this.ExpiryDate    = $li.ExpiryDate
+    }# DALicenseKey([System.String]$d, [System.String]$p, [System.String]$k)
+}# class DALicenseKey : LicenseKey
 
 # class for zone information
 class CentrifyZone : CentrifyObject
@@ -119,7 +156,9 @@ class CentrifyComputer : CentrifyObject
 
 class CentrifyDeploymentInfo
 {
-    [System.Collections.Generic.List[LicenseKey]]$LicenseKeys = @{}
+    [System.Collections.Generic.List[DCLicenseKey]]$DCLicenseKeys = @{}
+    [System.Collections.Generic.List[DALicenseKey]]$DALicenseKeys = @{}
+    [System.Collections.ArrayList]$CombinedLicenseKeys = @{}
     [System.Collections.Generic.List[CentrifyZone]]$CentrifyZones = @{}
     [System.Collections.Generic.List[CentrifyComputer]]$CentrifyComputers = @{}
 
@@ -166,6 +205,8 @@ function global:Get-CdmDeploymentInfo
         Write-Verbose "Starting on $domain"
 
         ### License ###
+
+        ## DirectControl licenses ##
     
         # setting the search for our unique tag
         $l = [ADSISearcher]'(&(displayName=$CimsLicenseContainerVersion*))' # targets license containers 
@@ -183,10 +224,31 @@ function global:Get-CdmDeploymentInfo
             foreach ($key in $licensekey.description)
             {
                 # new license key object and add it to the deployment info
-                $obj = New-Object LicenseKey -ArgumentList ($domain, $key)
-                $DeploymentInfo.LicenseKeys.Add($obj) | Out-Null
+                $obj = New-Object DCLicenseKey -ArgumentList ($domain, "DirectControl", $key)
+                $DeploymentInfo.DCLicenseKeys.Add($obj) | Out-Null
             }
         }# foreach ($licensekey in $l.FindAll().Properties)
+
+        ## DirectAudit licenses ##
+        
+        
+        # setting the search for our unique tag
+        $a = [ADSISearcher]'(&(name=Vegas-Installation-*))'
+
+        # setting the search root
+        $a.SearchRoot = [ADSI]"LDAP://$domain"
+
+        # only get the description property
+        $a.PropertiesToLoad.AddRange(@('keywords'))
+
+        foreach ($dakey in $a.FindAll().Properties)
+        {
+            foreach ($key in ($dakey.keywords | Where-Object {$_ -like "License:*"}))
+            {
+                $obj = New-Object DALicenseKey -ArgumentList ($domain, "DirectAudit", $key)
+                $DeploymentInfo.DALicenseKeys.Add($obj) | Out-Null
+            }
+        } #>
 
         ### Zones ###
 
@@ -301,9 +363,20 @@ function global:Get-CdmLicenseKeys
 		[System.String[]]$Domains
     )
 
+    # get the initial metric info
     $CdmDeploymentInfo = Get-CdmDeploymentInfo -Domains $Domains
 
-    return $CdmDeploymentInfo.LicenseKeys
+    # filter down license key information to a combined view with consolidated properties
+    $dccombined = $CdmDeploymentInfo.DCLicenseKeys | Select-Object Product,Domain,Type,Serial,Count,isValid,isFIPS,ExpiryDate,Key
+    $dacombined = $CdmDeploymentInfo.DALicenseKeys | Select-Object Product,Domain,Type,@{label="Serial";Expression={$_.SerialNumber}}, `
+                                                        @{label="Count";Expression={$_.NumberofSeats}},isValid,isFIPS,ExpiryDate,Key
+
+    # make a new ArrayList for this and add both sets of information
+    $CombinedKeys = New-Object System.Collections.ArrayList
+    $CombinedKeys.AddRange(@($dccombined)) | Out-Null
+    $CombinedKeys.AddRange(@($dacombined)) | Out-Null
+                                                            
+    return $CombinedKeys
 }# function global:Get-CdmLicenseKeys
 #endregion
 ###########
